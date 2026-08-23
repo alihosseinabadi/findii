@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}FindII CRM{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="topbar">
+  <a href="/board" class="brand">🤖 Find<span>II</span> <small>CRM</small></a>
+  <div class="nav-links">
+    <a href="/board">Board</a>
+    <a href="/api/leads">API</a>
+    <a href="/export.csv">Export CSV</a>
+    {% if crm_auth_enabled %}
+    <a href="/logout" class="muted">Logout</a>
+    {% endif %}
+  </div>
+</nav>
+<main>
+{% block content %}{% endblock %}
+</main>
+<footer class="footer">
+  FindII — AI Lead Agent · pipeline powered by Scrapling + LLM
+</footer>
+</body>
+</html>

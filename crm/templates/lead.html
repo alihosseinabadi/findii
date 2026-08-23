@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Lead #{{ lead.id }} — FindII CRM{% endblock %}
+{% block content %}
+<a href="/board" class="muted">← back to board</a>
+
+<div class="detail">
+  <div class="detail-main">
+    <h2>
+      <span class="pill {{ 'hot' if lead.score >= 80 else ('good' if lead.score >= 60 else 'ok') }}">{{ lead.score }}/100</span>
+      Lead #{{ lead.id }}
+      <span class="tag src-{{ lead.source }}">{{ lead.source }}</span>
+    </h2>
+
+    <table class="props">
+      <tr><td>Deal</td><td>{{ lead.deal_type }}</td><td>Property</td><td>{{ lead.property_type }}</td></tr>
+      <tr><td>City</td><td>{{ lead.city or '—' }}</td><td>District</td><td>{{ lead.district or '—' }}</td></tr>
+      <tr>
+        <td>Price</td>
+        <td>{% if lead.price %}{{ "%.0f"|format(lead.price) }} {{ lead.currency or '' }}{% else %}—{% endif %}</td>
+        <td>Area / Rooms</td><td>{{ lead.area_sqm or '—' }} m² · {{ lead.rooms or '—' }}</td>
+      </tr>
+      <tr><td>Contact</td><td><code>{{ lead.contact or '—' }}</code></td><td>Urgency</td><td>{{ lead.urgency }}</td></tr>
+      <tr><td>Status</td><td><b>{{ lead.status }}</b></td><td>Captured</td><td>{{ lead.created_at }}</td></tr>
+    </table>
+
+    {% if lead.source_url %}
+      <p>🔗 <a href="{{ lead.source_url }}" target="_blank" rel="noopener">{{ lead.source_url }}</a></p>
+    {% endif %}
+
+    <h3>Why this score</h3>
+    <ul class="reasons">
+      {% for r in lead.score_reasons %}<li>{{ r }}</li>{% endfor %}
+    </ul>
+
+    <h3>Raw source text</h3>
+    <pre class="raw">{{ lead.raw_text[:2000] }}</pre>
+  </div>
+
+  <aside class="detail-side">
+    <h3>Pipeline</h3>
+    <div class="stage-buttons">
+      {% for s in stages %}
+      <form method="post" action="/lead/{{ lead.id }}/status">
+        <input type="hidden" name="status" value="{{ s }}">
+        <button class="stage-btn {{ 'active' if s == lead.status }}" type="submit">{{ s }}</button>
+      </form>
+      {% endfor %}
+    </div>
+
+    <h3>Notes</h3>
+    <form method="post" action="/lead/{{ lead.id }}/note" class="note-form">
+      <textarea name="body" rows="3" placeholder="Call log, offer details…" required></textarea>
+      <button type="submit">Add note</button>
+    </form>
+    {% for n in notes %}
+    <div class="note">
+      <p>{{ n.body }}</p>
+      <span class="muted">{{ n.author }} · {{ n.created_at }}</span>
+    </div>
+    {% else %}
+    <p class="muted">No notes yet.</p>
+    {% endfor %}
+
+    <form method="post" action="/lead/{{ lead.id }}/delete" class="danger-zone"
+          onsubmit="return confirm('Delete this lead?')">
+      <button class="danger" type="submit">Delete lead</button>
+    </form>
+  </aside>
+</div>
+{% endblock %}

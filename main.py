@@ -1,4 +1,10 @@
-"""RealState Lead AI — Telegram bot that turns channel text into qualified leads."""
+"""FindII — AI Lead Agent entrypoint.
+
+Runs three services in one process:
+    1. Telegram bot (channel ingestion + commands)
+    2. Avito scrape scheduler (Scrapling-powered)
+    3. Web CRM (FastAPI kanban pipeline)
+"""
 import asyncio
 import logging
 import sys
@@ -8,21 +14,33 @@ from aiogram.filters import Command
 
 import config
 from ai.extractor import LeadExtractor
+from agent.orchestrator import FindIIAgent, ScrapeScheduler
 from bot.handlers import TelegramBot
 from core.db import LeadStore
+from crm.app import create_app
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
 )
-log = logging.getLogger("realstate")
+log = logging.getLogger("findii")
 
 BANNER = """
-╔══════════════════════════════════════════╗
-║   🏠  RealState Lead AI  🤖              ║
-║   channel text → structured leads       ║
-╚══════════════════════════════════════════╝
+╔════════════════════════════════════════════════╗
+║   🤖  FindII — AI Lead Agent for Real Estate   ║
+║   scrape → extract → score → CRM → close 💰    ║
+╚════════════════════════════════════════════════╝
 """
+
+
+async def start_crm(store: LeadStore):
+    import uvicorn
+    app = create_app(store)
+    srv = uvicorn.Server(uvicorn.Config(
+        app, host=config.CRM_HOST, port=config.CRM_PORT, log_level="warning",
+    ))
+    log.info("CRM on http://%s:%s", config.CRM_HOST, config.CRM_PORT)
+    await srv.serve()
 
 
 async def main() -> None:
@@ -34,39 +52,62 @@ async def main() -> None:
 
     store = LeadStore(config.DB_PATH)
     extractor = LeadExtractor()
-    bot_handler = TelegramBot(extractor, store)
+    agent = FindIIAgent(extractor, store)
 
-    log.info("AI provider chain: %s", extractor.provider or "auto")
-    channels = await store.list_channels()
-    if config.SOURCE_CHANNELS or channels:
-        log.info("monitoring %s env + %s db sources",
-                 len(config.SOURCE_CHANNELS), len(channels))
+    bot_handler = TelegramBot(agent, store)
 
     bot = Bot(token=config.TELEGRAM_TOKEN)
     dp = Dispatcher()
+    bot_handler.bind_bot(bot)
 
+    # telegram ingestion + commands
     dp.channel_post.register(bot_handler.handle_channel_post)
     dp.edited_channel_post.register(bot_handler.handle_channel_post)
     dp.message.register(bot_handler.handle_message)
-
     for cmd, handler in [
         ("start", bot_handler.cmd_start),
+        ("addsearch", bot_handler.cmd_addsearch),
+        ("searches", bot_handler.cmd_searches),
+        ("delsearch", bot_handler.cmd_delsearch),
+        ("togglesearch", bot_handler.cmd_togglesearch),
+        ("scrape", bot_handler.cmd_scrape),
         ("stats", bot_handler.cmd_stats),
         ("leads", bot_handler.cmd_leads),
         ("mark", bot_handler.cmd_mark),
         ("export", bot_handler.cmd_export),
-        ("channels", bot_handler.cmd_channels),
-        ("addchannel", bot_handler.cmd_addchannel),
-        ("rmchannel", bot_handler.cmd_rmchannel),
     ]:
         dp.message.register(handler, Command(cmd))
 
-    log.info("✅ Bot is ready — polling started")
-    await dp.start_polling(bot)
+    # periodic avito scraping with telegram digest after each cycle
+    scheduler = ScrapeScheduler(agent)
+
+    original_run = agent.run_all_searches
+
+    async def run_with_digest() -> dict:
+        summary = await original_run()
+        if summary.get("new"):
+            try:
+                await bot_handler.send_digest(summary)
+            except Exception:  # noqa: BLE001
+                log.exception("digest failed")
+        return summary
+
+    agent.run_all_searches = run_with_digest  # type: ignore[method-assign]
+
+    log.info("AI provider chain: %s | scraper engine: %s",
+             extractor.provider or "auto", config.SCRAPER_ENGINE)
+    searches = await store.list_searches(enabled_only=True)
+    log.info("%d saved searches ready", len(searches))
+
+    await asyncio.gather(
+        dp.start_polling(bot),
+        scheduler.run_forever(),
+        start_crm(store),
+    )
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        print("\n👋 RealState Lead AI stopped")
+        print("\n👋 FindII stopped")

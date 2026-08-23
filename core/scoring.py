@@ -8,6 +8,7 @@ from core.models import Lead
 URGENCY_WORDS = (
     "urgent", "asap", "today", "immediately", "cash", "deadline",
     "hot", "last chance", "moving out", "leaving",
+    "срочно", "сегодня", "торг", "без комиссии", "прямой хозяин",
 )
 PHONE_RE = re.compile(r"\+?\d[\d\-\s()]{8,}\d")
 
@@ -61,5 +62,9 @@ def score_lead(lead: Lead) -> tuple[int, list[str]]:
     if lead.urgency == "high":
         score += 10
         reasons.append("AI flagged high urgency")
+
+    if lead.source_url:
+        score += 5
+        reasons.append("verifiable listing URL")
 
     return min(score, 100), reasons

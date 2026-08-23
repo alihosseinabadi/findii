@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Login — FindII CRM{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <form class="login-card" method="post" action="/login">
+    <h2>🤖 FindII CRM</h2>
+    <p class="muted">AI Lead Agent control room</p>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <input type="password" name="password" placeholder="Password" autofocus required>
+    <button type="submit">Enter</button>
+  </form>
+</div>
+{% endblock %}

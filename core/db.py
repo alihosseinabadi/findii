@@ -1,4 +1,4 @@
-"""SQLite storage for leads and monitored channels."""
+"""FindII storage: leads, saved searches, CRM notes. Single SQLite file."""
 from __future__ import annotations
 
 import asyncio
@@ -6,15 +6,18 @@ import csv
 import hashlib
 import os
 import sqlite3
-from typing import Iterable
+from datetime import datetime, timezone
 
 from core.models import Lead
 
-_SCHEMA = """
+SCHEMA = """
 CREATE TABLE IF NOT EXISTS leads (
-    source_chat_id  INTEGER NOT NULL,
-    message_id      INTEGER NOT NULL,
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    source          TEXT DEFAULT 'telegram',
+    source_chat_id  INTEGER NOT NULL DEFAULT 0,
+    message_id      INTEGER NOT NULL DEFAULT 0,
     source_title    TEXT DEFAULT '',
+    source_url      TEXT DEFAULT '',
     raw_text        TEXT DEFAULT '',
     is_real_estate  INTEGER DEFAULT 0,
     deal_type       TEXT,
@@ -32,51 +35,143 @@ CREATE TABLE IF NOT EXISTS leads (
     score           INTEGER DEFAULT 0,
     score_reasons   TEXT DEFAULT '',
     status          TEXT DEFAULT 'new',
-    content_hash    TEXT,
-    created_at      TEXT,
-    PRIMARY KEY (source_chat_id, message_id)
+    content_hash    TEXT UNIQUE,
+    created_at      TEXT
 );
-CREATE TABLE IF NOT EXISTS channels (
-    chat_id INTEGER PRIMARY KEY,
-    title   TEXT,
-    added_at TEXT
+CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_msg ON leads(source_chat_id, message_id);
+CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(score);
+
+CREATE TABLE IF NOT EXISTS searches (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    url        TEXT NOT NULL UNIQUE,
+    label      TEXT DEFAULT '',
+    enabled    INTEGER DEFAULT 1,
+    last_run   TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS notes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id    INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+    author     TEXT DEFAULT 'crm',
+    body       TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
 );
 """
+
+
+def utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class LeadStore:
     def __init__(self, db_path: str):
         os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA foreign_keys = ON")
         self._lock = asyncio.Lock()
-        self._conn.executescript(_SCHEMA)
+        self._conn.executescript(SCHEMA)
         self._conn.commit()
+
+    # ------------------------------------------------------------ helpers
 
     @staticmethod
     def content_hash(text: str) -> str:
         return hashlib.sha256(" ".join(text.split()).lower().encode()).hexdigest()[:16]
 
-    async def save_lead(self, lead: Lead) -> bool:
-        """Insert lead. Returns False if already stored (dedupe)."""
+    @staticmethod
+    def _lead_from_row(row) -> Lead:
+        d = dict(row)
+        d["is_real_estate"] = bool(d.get("is_real_estate"))
+        reasons_raw = d.pop("score_reasons", "") or ""
+        lead = Lead(
+            **{k: v for k, v in d.items() if k in Lead.__dataclass_fields__}
+        )
+        lead.score_reasons = [r.strip() for r in reasons_raw.split(",") if r.strip()]
+        return lead
+
+    # -------------------------------------------------------------- leads
+
+    async def save_lead(self, lead: Lead) -> tuple[bool, int | None]:
+        """Insert lead. Returns (saved?, db id). False if duplicate."""
         async with self._lock:
             cur = self._conn.execute(
-                "SELECT 1 FROM leads WHERE source_chat_id=? AND message_id=?",
+                "SELECT id FROM leads WHERE source_chat_id=? AND message_id=?",
                 (lead.source_chat_id, lead.message_id),
             )
-            if cur.fetchone():
-                return False
-            d = lead.to_dict()
-            self._conn.execute(
-                """INSERT INTO leads VALUES
-                (:source_chat_id,:message_id,:source_title,:raw_text,:is_real_estate,
-                 :deal_type,:property_type,:city,:district,:price,:currency,:area_sqm,
-                 :rooms,:floor,:contact,:summary,:urgency,:score,:score_reasons_str,
-                 :status,:content_hash,:created_at)""",
-                {**d, "is_real_estate": int(lead.is_real_estate),
-                 "score_reasons_str": ", ".join(lead.score_reasons)},
+            row = cur.fetchone()
+            if row:
+                return False, row["id"]
+            try:
+                d = lead.to_dict()
+                d.pop("id", None)
+                cur = self._conn.execute(
+                    """INSERT INTO leads
+                    (source, source_chat_id, message_id, source_title, source_url,
+                     raw_text, is_real_estate, deal_type, property_type, city, district,
+                     price, currency, area_sqm, rooms, floor, contact, summary, urgency,
+                     score, score_reasons, status, content_hash, created_at)
+                    VALUES
+                    (:source,:source_chat_id,:message_id,:source_title,:source_url,
+                     :raw_text,:is_real_estate,:deal_type,:property_type,:city,:district,
+                     :price,:currency,:area_sqm,:rooms,:floor,:contact,:summary,:urgency,
+                     :score,:score_reasons_str,:status,:content_hash,:created_at)""",
+                    {**d, "is_real_estate": int(lead.is_real_estate),
+                     "score_reasons_str": ", ".join(lead.score_reasons)},
+                )
+                self._conn.commit()
+                return True, cur.lastrowid
+            except sqlite3.IntegrityError:
+                return False, None
+
+    async def get_lead(self, lead_id: int) -> Lead | None:
+        async with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM leads WHERE id=?", (lead_id,)
+            ).fetchone()
+            return self._lead_from_row(row) if row else None
+
+    async def list_leads(self, status: str | None = None, min_score: int = 0,
+                         query: str = "", limit: int = 200) -> list[Lead]:
+        sql = "SELECT * FROM leads WHERE score >= ?"
+        params: list = [min_score]
+        if status:
+            sql += " AND status=?"
+            params.append(status)
+        if query:
+            sql += " AND (raw_text LIKE ? OR city LIKE ? OR district LIKE ? OR summary LIKE ? OR source_url LIKE ?)"
+            like = f"%{query}%"
+            params += [like] * 5
+        sql += " ORDER BY score DESC, created_at DESC LIMIT ?"
+        params.append(limit)
+        async with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+            return [self._lead_from_row(r) for r in rows]
+
+    async def recent_leads(self, limit: int = 10, min_score: int = 0) -> list[Lead]:
+        return await self.list_leads(min_score=min_score, limit=limit)
+
+    async def set_status(self, key_a: int, key_b: int, status: str) -> bool:
+        """Accept either (lead_db_id, ignored) or (source_chat_id, message_id)."""
+        async with self._lock:
+            cur = self._conn.execute(
+                "UPDATE leads SET status=? WHERE id=?", (status, key_a)
             )
+            if cur.rowcount == 0:
+                cur = self._conn.execute(
+                    "UPDATE leads SET status=? WHERE source_chat_id=? AND message_id=?",
+                    (status, key_a, key_b),
+                )
             self._conn.commit()
-            return True
+            return cur.rowcount > 0
+
+    async def delete_lead(self, lead_id: int) -> bool:
+        async with self._lock:
+            cur = self._conn.execute("DELETE FROM leads WHERE id=?", (lead_id,))
+            self._conn.commit()
+            return cur.rowcount > 0
 
     async def is_duplicate_content(self, content_hash: str) -> bool:
         async with self._lock:
@@ -85,75 +180,91 @@ class LeadStore:
             )
             return bool(cur.fetchone())
 
-    async def recent_leads(self, limit: int = 10, min_score: int = 0) -> list[Lead]:
-        async with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM leads WHERE score >= ? ORDER BY score DESC, created_at DESC LIMIT ?",
-                (min_score, limit),
-            )
-            cols = [c[0] for c in cur.description]
-            return [self._row_to_lead(dict(zip(cols, row))) for row in cur.fetchall()]
-
-    async def set_status(self, source_chat_id: int, message_id: int, status: str) -> bool:
-        async with self._lock:
-            cur = self._conn.execute(
-                "UPDATE leads SET status=? WHERE source_chat_id=? AND message_id=?",
-                (status, source_chat_id, message_id),
-            )
-            self._conn.commit()
-            return cur.rowcount > 0
-
     async def stats(self) -> dict:
         async with self._lock:
-            total = self._conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
-            hot = self._conn.execute("SELECT COUNT(*) FROM leads WHERE score >= 80").fetchone()[0]
-            by_status = dict(
-                self._conn.execute(
-                    "SELECT status, COUNT(*) FROM leads GROUP BY status"
-                ).fetchall()
-            )
-            by_deal = dict(
-                self._conn.execute(
-                    "SELECT deal_type, COUNT(*) FROM leads GROUP BY deal_type"
-                ).fetchall()
-            )
-            return {"total": total, "hot": hot, "by_status": by_status, "by_deal": by_deal}
+            total = self._conn.execute("SELECT COUNT(*) c FROM leads").fetchone()["c"]
+            hot = self._conn.execute(
+                "SELECT COUNT(*) c FROM leads WHERE score >= 80").fetchone()["c"]
+            today = self._conn.execute(
+                "SELECT COUNT(*) c FROM leads WHERE created_at >= date('now')").fetchone()["c"]
+            by_status = dict(self._conn.execute(
+                "SELECT status s, COUNT(*) c FROM leads GROUP BY status").fetchall())
+            by_deal = dict((r["s"], r["c"]) for r in self._conn.execute(
+                "SELECT deal_type s, COUNT(*) c FROM leads GROUP BY deal_type").fetchall())
+            by_source = dict(self._conn.execute(
+                "SELECT source s, COUNT(*) c FROM leads GROUP BY source").fetchall())
+            won = by_status.get("won", 0)
+            contacted = sum(v for k, v in by_status.items() if k != "new")
+            return {"total": total, "hot": hot, "today": today,
+                    "by_status": by_status, "by_deal": by_deal,
+                    "by_source": by_source,
+                    "conversion": round(100 * won / contacted, 1) if contacted else 0.0}
 
     async def export_csv(self, path: str) -> int:
         async with self._lock:
             cur = self._conn.execute("SELECT * FROM leads ORDER BY created_at DESC")
-            cols = [c[0] for c in cur.description]
+            cols = [d[0] for d in cur.description]
             rows = cur.fetchall()
             with open(path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(cols)
-                writer.writerows(rows)
+                w = csv.writer(f)
+                w.writerow(cols)
+                w.writerows(rows)
             return len(rows)
 
-    async def add_channel(self, chat_id: int, title: str = "") -> None:
-        async with self._lock:
-            self._conn.execute(
-                "INSERT OR REPLACE INTO channels (chat_id, title, added_at) VALUES (?,?,datetime('now'))",
-                (chat_id, title),
-            )
-            self._conn.commit()
+    # ------------------------------------------------------------ searches
 
-    async def remove_channel(self, chat_id: int) -> bool:
+    async def add_search(self, url: str, label: str = "") -> tuple[bool, int]:
         async with self._lock:
-            cur = self._conn.execute("DELETE FROM channels WHERE chat_id=?", (chat_id,))
+            row = self._conn.execute(
+                "SELECT id FROM searches WHERE url=?", (url,)).fetchone()
+            if row:
+                return False, row["id"]
+            cur = self._conn.execute(
+                "INSERT INTO searches (url, label) VALUES (?,?)",
+                (url, label))
+            self._conn.commit()
+            return True, cur.lastrowid
+
+    async def list_searches(self, enabled_only: bool = True) -> list[dict]:
+        sql = "SELECT * FROM searches"
+        if enabled_only:
+            sql += " WHERE enabled=1"
+        sql += " ORDER BY id"
+        async with self._lock:
+            return [dict(r) for r in self._conn.execute(sql).fetchall()]
+
+    async def del_search(self, search_id: int) -> bool:
+        async with self._lock:
+            cur = self._conn.execute("DELETE FROM searches WHERE id=?", (search_id,))
             self._conn.commit()
             return cur.rowcount > 0
 
-    async def list_channels(self) -> list[tuple[int, str]]:
+    async def toggle_search(self, search_id: int) -> bool:
         async with self._lock:
-            cur = self._conn.execute("SELECT chat_id, title FROM channels")
-            return cur.fetchall()
+            cur = self._conn.execute(
+                "UPDATE searches SET enabled = 1 - enabled WHERE id=?", (search_id,))
+            self._conn.commit()
+            return cur.rowcount > 0
 
-    @staticmethod
-    def _row_to_lead(row: dict) -> Lead:
-        row["is_real_estate"] = bool(row.get("is_real_estate"))
-        reasons = [r.strip() for r in (row.pop("score_reasons", "") or "").split(",") if r.strip()]
-        known = {k for k in Lead.__dataclass_fields__ if k in row}
-        data = {k: row[k] for k in known}
-        data["score_reasons"] = reasons
-        return Lead(**data)
+    async def touch_search(self, search_id: int) -> None:
+        async with self._lock:
+            self._conn.execute(
+                "UPDATE searches SET last_run=? WHERE id=?", (utcnow(), search_id))
+            self._conn.commit()
+
+    # --------------------------------------------------------------- notes
+
+    async def add_note(self, lead_id: int, body: str, author: str = "crm") -> int:
+        async with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO notes (lead_id, author, body) VALUES (?,?,?)",
+                (lead_id, author, body))
+            self._conn.commit()
+            return cur.lastrowid or 0
+
+    async def list_notes(self, lead_id: int) -> list[dict]:
+        async with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM notes WHERE lead_id=? ORDER BY id DESC",
+                (lead_id,)).fetchall()
+            return [dict(r) for r in rows]

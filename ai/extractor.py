@@ -16,7 +16,13 @@ log = logging.getLogger("realstate.ai")
 
 PHONE_RE = re.compile(r"\+?\d[\d\-\s()]{8,}\d")
 PRICE_RE = re.compile(
-    r"(\d[\d,\.\s]{2,12})\s*(usd|eur|eur|\$|€|£|toman|toman|rub|₽|aed|₺)", re.IGNORECASE
+    r"(\d[\d,\.\s]{2,12})\s*(usd|eur|\$|€|£|rub|₽|aed|₺|тг)", re.IGNORECASE
+)
+AREA_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:м²|м2|кв\.?\s*м|sqm|m²)", re.IGNORECASE)
+ROOMS_RE = re.compile(r"(?:^|[\s,\"])(\d{1,2})\s*-?\s*(?:к(?:омн)?\b|комнат|br\b|bedroom)", re.IGNORECASE)
+FLOOR_RE = re.compile(r"(\d{1,2})\s*/\s*(\d{1,2})\s*эт", re.IGNORECASE)
+ADDRESS_LINE_RE = re.compile(
+    r"(?:адрес|address|location|район|город)\s*[:—-]\s*(.+)", re.IGNORECASE
 )
 
 
@@ -110,21 +116,44 @@ class LeadExtractor:
 
     @staticmethod
     def _deal_type(low: str) -> str:
-        for d in ("rent", "lease", "buy"):
-            if d in low:
-                return d
-        if "sale" in low or "sell" in low:
+        if any(w in low for w in ("аренд", "сниму", "сда", "rent", "lease")):
+            return "rent"
+        if any(w in low for w in ("куплю", "buy", "purchase")):
+            return "buy"
+        if any(w in low for w in ("продам", "продажа", "прода", "sale", "sell")):
             return "sell"
+        return "unknown"
+
+    # Multilingual property keywords (EN + RU — Avito, CIAN-classified markets)
+    RE_KEYWORDS = (
+        "sale", "sell", "rent", "lease", "apartment", "villa", "house", "land",
+        "m²", "sqm", "bedroom", "rooms", "property", "real estate",
+        "квартир", "студи", "дом ", "коттедж", "таунхаус", "участок",
+        "комнат", "этаж", "жил", "недвижим", "офис", "коммерческ",
+        "ипотек", "новостройк", "застройщик",
+    )
+    RE_PROPERTY = (
+        ("апартамент", "apartment"), ("квартир", "apartment"),
+        ("студи", "apartment"), ("новостройк", "apartment"),
+        ("коттедж", "house"), ("таунхаус", "house"), ("дом", "house"),
+        ("участок", "land"), ("офис", "office"), ("коммерческ", "commercial"),
+        ("villa", "villa"), ("apartment", "apartment"), ("house", "house"),
+        ("land", "land"), ("office", "office"), ("commercial", "commercial"),
+    )
+
+    @classmethod
+    def _property_type(cls, low: str) -> str:
+        for kw, ptype in cls.RE_PROPERTY:
+            if kw in low:
+                return ptype
         return "unknown"
 
     @staticmethod
     def _extract_regex(text: str) -> dict:
-        """No-API fallback so the bot still catches obvious leads."""
+        """No-API fallback so the bot still catches obvious leads (EN/RU)."""
         low = text.lower()
-        keywords = ("sale", "sell", "rent", "lease", "apartment", "villa", "house",
-                    "land", "m²", "sqm", "bedroom", "rooms", "property", "real estate")
         phone_m = PHONE_RE.search(text)
-        price_m = PRICE_RE.search(text.replace("\u00a0", " "))
+        price_m = PRICE_RE.search(text.replace("\u00a0", " ").replace("\u2009", ""))
         price = None
         currency = None
         if price_m:
@@ -133,17 +162,46 @@ class LeadExtractor:
             except ValueError:
                 price = None
             currency = price_m.group(2).upper().replace("$", "USD").replace("€", "EUR")
+
+        area = None
+        area_m = AREA_RE.search(text)
+        if area_m:
+            try:
+                area = float(area_m.group(1).replace(",", "."))
+            except ValueError:
+                area = None
+
+        rooms = None
+        rooms_m = ROOMS_RE.search(text.lower())
+        if rooms_m:
+            try:
+                rooms = int(rooms_m.group(1))
+            except ValueError:
+                rooms = None
+
+        floor = None
+        floor_m = FLOOR_RE.search(text.lower())
+        if floor_m:
+            floor = f"{floor_m.group(1)}/{floor_m.group(2)}"
+
+        city = district = None
+        addr_m = ADDRESS_LINE_RE.search(text)
+        if addr_m:
+            parts = [p.strip() for p in addr_m.group(1).split(",") if p.strip()]
+            if len(parts) >= 1 and 0 < len(parts[0]) < 40:
+                city = parts[0]
+            if len(parts) >= 2:
+                district = parts[1][:60]
+
         return {
-            "is_real_estate": any(k in low for k in keywords),
+            "is_real_estate": any(k in low for k in LeadExtractor.RE_KEYWORDS),
             "deal_type": LeadExtractor._deal_type(low),
-            "property_type": next(
-                (p for p in ("apartment", "villa", "land", "office", "commercial", "house")
-                 if p in low), "unknown"),
-            "city": None, "district": None,
+            "property_type": LeadExtractor._property_type(low),
+            "city": city, "district": district,
             "price": price, "currency": currency,
-            "area_sqm": None, "rooms": None, "floor": None,
+            "area_sqm": area, "rooms": rooms, "floor": floor,
             "contact": phone_m.group(0).strip() if phone_m else None,
             "summary": text.strip().replace("\n", " ")[:140],
-            "urgency": "high" if any(w in low for w in ("urgent", "asap", "today")) else "low",
+            "urgency": "high" if any(w in low for w in ("urgent", "asap", "today", "срочно")) else "low",
             "_provider": "regex",
         }

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Pipeline — FindII CRM{% endblock %}
+{% block content %}
+<div class="stats-row">
+  <div class="stat"><b>{{ stats.total }}</b><span>total leads</span></div>
+  <div class="stat"><b>{{ stats.today }}</b><span>today</span></div>
+  <div class="stat hot"><b>{{ stats.hot }}</b><span>hot (≥80)</span></div>
+  <div class="stat"><b>{{ stats.conversion }}%</b><span>new→won</span></div>
+</div>
+
+<form class="searchbar" method="get" action="/board">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search city, text, URL…">
+  <button type="submit">Search</button>
+  {% if q %}<a class="muted" href="/board">clear</a>{% endif %}
+</form>
+
+<p class="hint">Drag cards between columns to move leads through the pipeline.</p>
+
+<div class="board">
+  {% for col in columns %}
+  <div class="col">
+    <div class="col-head">
+      <h3>{{ col.stage|capitalize }}</h3>
+      <span class="count">{{ col.count }}</span>
+    </div>
+    <div class="col-body" data-status="{{ col.stage }}">
+      <div class="cards">
+        {% for lead in col.cards %}
+        <article class="card" draggable="true" data-id="{{ lead.id }}">
+          <a href="/lead/{{ lead.id }}" class="card-title">
+            <span class="pill {{ 'hot' if lead.score >= 80 else ('good' if lead.score >= 60 else 'ok') }}">{{ lead.score }}</span>
+            {{ (lead.summary or lead.raw_text)[:70] }}
+          </a>
+          <div class="card-meta">📍 {{ lead.city or '—' }}{% if lead.district %}, {{ lead.district }}{% endif %}</div>
+          <div class="card-meta">
+            {% if lead.price %}💰 {{ "%.0f"|format(lead.price) }} {{ lead.currency or "" }} ·{% endif %}
+            🏷 {{ lead.deal_type }}
+          </div>
+          <div class="card-foot">
+            <span class="tag src-{{ lead.source }}">{{ lead.source }}</span>
+            <span class="muted">#{{ lead.id }}</span>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% if junk_count %}
+<p class="muted junk-note">{{ junk_count }} junk/duplicate leads hidden — <a href="/api/leads?status=junk">view via API</a></p>
+{% endif %}
+
+<script>
+document.querySelectorAll('.card').forEach(card => {
+  card.addEventListener('dragstart', e =>
+    e.dataTransfer.setData('text/plain', card.dataset.id));
+});
+document.querySelectorAll('.col-body').forEach(col => {
+  col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('over'); });
+  col.addEventListener('dragleave', () => col.classList.remove('over'));
+  col.addEventListener('drop', async e => {
+    e.preventDefault();
+    const id = e.dataTransfer.getData('text/plain');
+    const status = col.dataset.status;
+    const body = new URLSearchParams({ status: status });
+    const resp = await fetch('/lead/' + id + '/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+    if (resp.ok) location.reload();
+  });
+});
+</script>
+{% endblock %}
