@@ -1,0 +1,8 @@
+services:
+  realstate:
+    build: .
+    container_name: realstate-lead-ai
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

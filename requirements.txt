@@ -1,0 +1,4 @@
+aiogram>=3.13,<4
+mistralai>=1.2,<2
+python-dotenv>=1.0
+httpx>=0.27
