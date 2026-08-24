@@ -158,6 +158,28 @@ Set `CRM_PASSWORD` in `.env` to protect it; set `CRM_PUBLIC_URL` so Telegram ale
 
 ≥80 🔥 hot · ≥60 ✅ good · everything else stays searchable in the CRM.
 
+## 🎯 Extraction quality (measured, not vibes)
+
+FindII ships a labeled dev set (`eval/labeled_sample.jsonl`, 15 EN/RU texts) and
+an eval runner — the same way you'd gate any ML feature:
+
+```bash
+python eval/run_eval.py --provider regex    # offline fallback chain
+python eval/run_eval.py --provider mistral  # full LLM chain
+```
+
+**Regex fallback provider (baseline):**
+
+| Metric | Score |
+|---|---|
+| `is_real_estate` detection | **precision 0.90 · recall 0.90 · F1 0.90** |
+| Contact/phone extraction | **100%** |
+| Property type | 90% · Area 83% · Rooms 75% · Deal type 80% |
+| City / district | 0% ← *this is exactly why the LLM chain matters* |
+
+Run the same eval with `--provider mistral` or `ollama` to quantify what the
+LLM adds over the fallback — and to catch prompt regressions before deploy.
+
 ## 📁 Project structure
 
 ```
@@ -181,6 +203,9 @@ findii/
 │   ├── app.py            # FastAPI kanban CRM + JSON API
 │   ├── auth.py           # HMAC cookie sessions
 │   └── templates/ static/
+├── eval/
+│   ├── labeled_sample.jsonl  # labeled dev set (EN/RU)
+│   └── run_eval.py           # precision/recall/F1 runner
 ├── Dockerfile · docker-compose.yml · .env.example
 └── README.md
 ```
