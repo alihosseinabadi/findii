@@ -67,4 +67,11 @@ def score_lead(lead: Lead) -> tuple[int, list[str]]:
         score += 5
         reasons.append("verifiable listing URL")
 
+    if lead.geo_status == "Confirmed":
+        score += 10
+        reasons.append("address map-verified (real OSM building)")
+    elif lead.geo_status == "Probable":
+        score += 5
+        reasons.append("street map-matched (OSM)")
+
     return min(score, 100), reasons

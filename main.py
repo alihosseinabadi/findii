@@ -11,6 +11,8 @@ import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
+from aiogram.types import CallbackQuery
+from aiogram.filters import Command
 
 import config
 from ai.extractor import LeadExtractor
@@ -64,6 +66,10 @@ async def main() -> None:
     dp.channel_post.register(bot_handler.handle_channel_post)
     dp.edited_channel_post.register(bot_handler.handle_channel_post)
     dp.message.register(bot_handler.handle_message)
+    dp.callback_query.register(bot_handler.on_lead_mode,
+                               lambda c: c.data
+                               and c.data.startswith("lead_mode:") or
+                               (c.data and c.data.startswith("menu:")))
     for cmd, handler in [
         ("start", bot_handler.cmd_start),
         ("addsearch", bot_handler.cmd_addsearch),
@@ -71,9 +77,12 @@ async def main() -> None:
         ("delsearch", bot_handler.cmd_delsearch),
         ("togglesearch", bot_handler.cmd_togglesearch),
         ("scrape", bot_handler.cmd_scrape),
+        ("market", bot_handler.cmd_leads_scrape),
+        ("city", bot_handler.cmd_city),
         ("stats", bot_handler.cmd_stats),
         ("leads", bot_handler.cmd_leads),
         ("mark", bot_handler.cmd_mark),
+        ("mini", bot_handler.cmd_mini),
         ("export", bot_handler.cmd_export),
     ]:
         dp.message.register(handler, Command(cmd))

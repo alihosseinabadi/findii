@@ -33,6 +33,13 @@ class Lead:
     status: str = "new"                    # new | contacted | qualified | negotiation | won | lost | junk
     content_hash: str = ""
 
+    # OSM map grounding (core/geomatch.py) — offline, real map objects only
+    geo_status: str = "unknown"            # Confirmed | Probable | Uncertain | unknown
+    latitude: float | None = None
+    longitude: float | None = None
+    osm_ref: str = ""                      # e.g. "node/12345"
+    matched_address: str = ""
+
     id: int | None = None
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")

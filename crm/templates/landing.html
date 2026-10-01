@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FindII — AI scrapes, finds your target</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+html { scroll-behavior: smooth; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; color: #1d1d1f; background: #fbfbfd; -webkit-font-smoothing: antialiased; }
+.hand { font-family: "Space Grotesk", -apple-system, "Segoe UI", sans-serif; letter-spacing: -.03em; }
+/* frosted nav */
+.navwrap { position: sticky; top: 0; z-index: 50; background: rgba(251,251,253,.8); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid rgba(0,0,0,.08); }
+nav { display: flex; align-items: center; gap: 26px; padding: 0 22px; height: 48px; max-width: 1024px; margin: 0 auto; }
+.logo { font-size: 19px; font-weight: 700; letter-spacing: -.01em; color: #1d1d1f; text-decoration: none; }
+.logo span { color: #b98a2f; }
+nav a.link { color: #1d1d1f; text-decoration: none; font-size: 12px; opacity: .8; }
+nav a.link:hover { opacity: 1; }
+nav .sp { flex: 1; }
+.pill { display: inline-block; background: #b98a2f; color: #fff; padding: 8px 20px; border-radius: 980px; text-decoration: none; font-weight: 600; font-size: 14px; border: 0; cursor: pointer; }
+.pill:hover { background: #8a6a24; }
+.pill.small { padding: 4px 14px; font-size: 12px; }
+/* hero */
+.hero { text-align: center; padding: 72px 20px 40px; background: #fbfbfd; position: relative; }
+.eyebrow { color: #b98a2f; font-weight: 700; font-size: 15px; letter-spacing: .02em; margin-bottom: 10px; }
+.hero h1 { font-size: clamp(52px, 9vw, 104px); font-weight: 700; line-height: 1.02; letter-spacing: -.015em; }
+.hl { position: relative; white-space: nowrap; }
+.hl::before { content: ""; position: absolute; left: -4%; right: -4%; top: 8%; bottom: 6%; background: #f1e6c8; border-radius: 18px; transform: rotate(-1.2deg); z-index: -1; }
+.hero h2 { font-size: clamp(38px, 6vw, 72px); margin-top: 8px; letter-spacing: -.015em; }
+.u { position: relative; white-space: nowrap; }
+.u::after { content: ""; position: absolute; left: 0; right: 0; bottom: 2px; height: 10px; background: #d4af37; border-radius: 6px; z-index: -1; }
+.cta-row { margin-top: 26px; display: flex; gap: 22px; justify-content: center; align-items: center; flex-wrap: wrap; }
+.cta-row .pill { padding: 12px 28px; font-size: 16px; }
+.linkmore { color: #b98a2f; text-decoration: none; font-size: 16px; font-weight: 600; }
+.linkmore:hover { text-decoration: underline; }
+.live { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 28px; }
+.chip { background: #fff; border: 1px solid rgba(0,0,0,.08); border-radius: 20px; padding: 6px 16px; font-size: 13px; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+.chip b { color: #b98a2f; }
+.note { position: absolute; right: 6%; top: 58%; transform: rotate(6deg); color: #b98a2f; font-size: 26px; text-align: left; line-height: 1.2; }
+/* app strip */
+.band { background: #f5f5f7; padding: 54px 20px 60px; text-align: center; }
+.apps { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; max-width: 1000px; margin: 0 auto; }
+.app { background: #fff; border-radius: 18px; width: 124px; padding: 20px 8px 16px; box-shadow: 0 4px 16px rgba(0,0,0,.06); text-decoration: none; color: #1d1d1f; transition: transform .2s; }
+.app:hover { transform: scale(1.05); }
+.app .lt { width: 52px; height: 52px; border-radius: 14px; margin: 0 auto; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; color: #fff; }
+.app b { display: block; margin-top: 10px; font-size: 13px; font-weight: 600; }
+.app small { color: #6e6e73; font-size: 11px; }
+/* sections */
+section.block { max-width: 980px; margin: 0 auto; padding: 72px 20px 24px; text-align: center; }
+.eyebrow2 { color: #6e6e73; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+section.block h2.st { font-size: clamp(34px, 5vw, 52px); letter-spacing: -.02em; margin-bottom: 8px; }
+section.block p.lead { color: #6e6e73; font-size: 17px; margin-bottom: 30px; max-width: 640px; margin-left: auto; margin-right: auto; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; text-align: left; }
+.feat { background: #f5f5f7; border-radius: 18px; padding: 26px; }
+.feat h3 { font-size: 19px; letter-spacing: -.01em; margin-bottom: 6px; }
+.feat h3 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+.feat p { font-size: 14px; color: #515154; line-height: 1.55; }
+/* dark band */
+.darkband { background: #000; color: #f5f5f7; margin-top: 64px; padding: 72px 20px; text-align: center; }
+.darkband h2.st { font-size: clamp(34px, 5vw, 52px); letter-spacing: -.02em; }
+.darkband p.lead { color: #a1a1a6; margin: 8px 0 26px; font-size: 17px; }
+.flow { max-width: 760px; margin: 0 auto; background: #1d1d1f; border: 1px solid #333; border-radius: 18px; padding: 26px; font-family: ui-monospace, monospace; font-size: 14px; white-space: pre-wrap; line-height: 1.8; text-align: left; color: #e8e8ed; }
+/* try */
+.trybox { display: grid; gap: 10px; max-width: 720px; margin: 0 auto; text-align: left; }
+.trybox textarea { width: 100%; min-height: 110px; border: 1px solid #d2d2d7; border-radius: 12px; padding: 12px; font-size: 15px; font-family: inherit; background: #fff; }
+.trybox .row { display: flex; gap: 10px; flex-wrap: wrap; }
+.trybox input { flex: 1; min-width: 160px; border: 1px solid #d2d2d7; border-radius: 12px; padding: 10px 12px; font-size: 15px; }
+#tryout { max-width: 720px; margin: 12px auto 0; background: #1d1d1f; color: #f5f5f7; border-radius: 14px; padding: 18px 20px; font-size: 14px; display: none; text-align: left; }
+#tryout.show { display: block; }
+#tryout table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+#tryout td { padding: 3px 8px 3px 0; vertical-align: top; }
+#tryout td.k { color: #a1a1a6; width: 130px; }
+.scorebar { background: #333; border-radius: 6px; height: 10px; margin: 8px 0; overflow: hidden; }
+.scorebar i { display: block; height: 100%; background: linear-gradient(90deg, #b98a2f, #e6c57a); }
+/* commands + steps */
+.cmds { max-width: 720px; margin: 0 auto; background: #f5f5f7; border-radius: 18px; padding: 22px 26px; font-family: ui-monospace, monospace; font-size: 14px; text-align: left; }
+.cmds div { padding: 4px 0; }
+.cmds b { color: #b98a2f; }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; text-align: left; }
+.step { background: #f5f5f7; border-radius: 18px; padding: 24px; }
+.step .n { font-size: 15px; font-weight: 700; color: #b98a2f; display: block; margin-bottom: 6px; }
+.step p { font-size: 14px; color: #515154; }
+.step code { background: #e8e8ed; padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+/* install band */
+.installband { background: #000; color: #f5f5f7; margin-top: 64px; padding: 72px 20px; text-align: center; }
+.install { max-width: 720px; margin: 24px auto 0; background: #1d1d1f; border: 1px solid #333; border-radius: 18px; padding: 22px 26px; font-family: ui-monospace, monospace; font-size: 14px; text-align: left; }
+.install .c { color: #d2d2d7; }
+footer { background: #f5f5f7; color: #6e6e73; font-size: 12px; padding: 24px 20px; text-align: center; border-top: 1px solid rgba(0,0,0,.08); }
+@media (max-width: 700px) { .note { display: none; } nav a.link { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="navwrap"><nav>
+  <a class="logo" href="/landing">findii<span>.</span></a>
+  <a class="link" href="#apps">Apps</a>
+  <a class="link" href="#features">Features</a>
+  <a class="link" href="#try">Try it</a>
+  <a class="link" href="#leads">Leads</a>
+  <a class="link" href="#selfhost">Self-host</a>
+  <span class="sp"></span>
+  <a class="link" href="/board">Sign in</a>
+  <a class="pill small" href="#order">Contact</a>
+</nav></div>
+
+<div class="hero">
+  <div class="eyebrow">FindII — private lead intelligence for real estate</div>
+  <h1 class="hand">AI scrapes, <span class="hl">finds your target.</span></h1>
+  <h2 class="hand">leads say <span class="u">welcome!</span></h2>
+  <div class="cta-row">
+    <a class="pill" href="#order" style="padding:12px 28px;font-size:16px">Request access</a>
+    <a class="linkmore" href="#try">See it live &gt;</a>
+  </div>
+  <div class="live" id="live">
+    <span class="chip"><b id="st-leads">–</b> leads tracked</span>
+    <span class="chip"><b id="st-hot">–</b> hot right now</span>
+    <span class="chip"><b id="st-maps">–</b> map buildings</span>
+  </div>
+
+<div class="band" id="apps">
+  <div class="apps">
+    <a class="app" href="#features"><div class="lt" style="background:#1d1d1f">S</div><b>Scrape</b><small>Avito + schedules</small></a>
+    <a class="app" href="#features"><div class="lt" style="background:#3a3a3c">C</div><b>Channels</b><small>Telegram monitor</small></a>
+    <a class="app" href="#features"><div class="lt" style="background:#515154">M</div><b>Map-pin</b><small>real buildings</small></a>
+    <a class="app" href="#features"><div class="lt" style="background:#6e6e73">A</div><b>Extract</b><small>LLM to JSON</small></a>
+    <a class="app" href="#features"><div class="lt" style="background:#86868b">S</div><b>Score</b><small>0–100 rules</small></a>
+    <a class="app" href="/board"><div class="lt" style="background:#a1a1a6">C</div><b>CRM</b><small>kanban board</small></a>
+  </div>
+</div>
+
+<section class="block" id="features">
+  <div class="eyebrow2">Six apps. One pipeline.</div>
+  <h2 class="st hand" style="font-size:clamp(38px,5vw,56px)">Everything a closer needs.</h2>
+  <p class="lead">From a raw Telegram post to a signed deal — no manual hunting.</p>
+  <div class="grid">
+    <div class="feat"><h3><span class="dot" style="background:#6e6e73"></span>Scrape</h3><p>Paste any Avito search URL. FindII paginates it on schedule and escalates to a stealth browser when blocked.</p></div>
+    <div class="feat"><h3><span class="dot" style="background:#6e6e73"></span>Leads from channels</h3><p>Add the bot as admin — every channel post becomes a structured lead with contact, price and rooms.</p></div>
+    <div class="feat"><h3><span class="dot" style="background:#6e6e73"></span>Map-grounded</h3><p><b>/city Moscow</b> pulls the real map (195k+ buildings). Addresses are verified — Confirmed +10, never invented.</p></div>
+    <div class="feat"><h3><span class="dot" style="background:#6e6e73"></span>AI extraction</h3><p>Deal type, price, area, urgency — strict JSON via Mistral → Ollama → regex fallback. Works with zero API keys.</p></div>
+    <div class="feat"><h3><span class="dot" style="background:#6e6e73"></span>Smart scoring</h3><p>Phone +30, map-verified +10, price +15… only leads above your threshold ping your phone. Hot at 80+.</p></div>
+    <div class="feat"><h3><span class="dot" style="background:#6e6e73"></span>Mini App CRM</h3><p>Browse, search, copy the phone and move stages from inside Telegram. Kanban board on desktop. <a class="linkmore" style="font-size:14px" href="/mini">Try it &gt;</a></p></div>
+  </div>
+</section>
+
+<div class="darkband">
+  <div class="eyebrow" style="color:#a1a1a6">Under the hood</div>
+  <h2 class="st hand" style="font-size:clamp(38px,5vw,56px)">How it flows.</h2>
+  <p class="lead">One pipeline for every source.</p>
+<div class="flow">Telegram channels ─┐
+Avito searches ───┼─▶ extract ─▶ map-pin ─▶ score ─▶ alert + CRM
+typed city map ───┘                  ▲
+                        195,719 real buildings (Moscow) · 3-city maps ready</div>
+</div>
+
+<section class="block" id="try">
+  <div class="eyebrow2">Interactive demo</div>
+  <h2 class="st hand" style="font-size:clamp(38px,5vw,56px)">Don't believe us. Test it.</h2>
+  <p class="lead">Paste any real-estate listing — the <b>real backend</b> extracts it, pulls the city's map if needed, and scores it live. Nothing is saved.</p>
+  <div class="trybox">
+    <textarea id="trytext" placeholder="e.g. Sdayotsya 2k kvartira, Tverskaya 1, Moscow. +7 916 111-22-33, 80000 RUB"></textarea>
+    <div class="row">
+      <input id="trycity" placeholder="map city (optional, e.g. Moscow)">
+      <button class="pill" onclick="tryIt()">Extract + score</button>
+    </div>
+  </div>
+  <div style="height:12px"></div>
+  <div id="tryout"></div>
+</section>
+
+<section class="block" id="leads">
+  <div class="eyebrow2">Lead engine</div>
+  <h2 class="st hand" style="font-size:clamp(38px,5vw,56px)">Ask for a market. Get a sales kit.</h2>
+  <p class="lead">Type any <b>city + business</b> (or <b>area + business</b>) — the <b>backend parses it (NLP), downloads that city's OSM map, geo-scopes to landmarks &amp; neighbourhoods</b>, then hands you Excel + CSV. Try it:</p>
+  <div class="trybox">
+    <textarea id="leadq" placeholder="e.g. moscow red square supermarket · bakery in manhattan new york · cafe near arbat moscow · فروشگاه تهران · new york (all businesses)"></textarea>
+    <div class="row">
+      <button class="pill" onclick="runLeads()">Scrape leads → Excel + CSV</button>
+    </div>
+  </div>
+  <div style="height:12px"></div>
+  <div id="leadout"></div>
+</section>
+
+<section class="block" id="commands">
+  <div class="eyebrow2">Total control</div>
+  <h2 class="st hand" style="font-size:clamp(38px,5vw,56px)">You drive it from chat.</h2>
+  <p class="lead">The whole agency in seven commands.</p>
+  <div class="cmds">
+    <div><b>/city Moscow</b> — pull that city's map, pin leads to real buildings</div>
+    <div><b>/market bakery in new york</b> — scrape an OSM business market → Excel + CSV</div>
+    <div><b>/addsearch &lt;avito-url&gt;</b> — save a search to the schedule</div>
+    <div><b>/scrape</b> — run all searches right now</div>
+    <div><b>/leads /stats</b> — top leads &amp; pipeline numbers</div>
+    <div><b>/mark &lt;id&gt; &lt;status&gt;</b> — move a deal down the pipe</div>
+    <div><b>/mini</b> — open the Mini App &nbsp;·&nbsp; <b>/export</b> — CSV dump</div>
+  </div>
+</section>
+
+<section class="block" id="connect">
+  <div class="eyebrow2">Get started</div>
+  <h2 class="st hand" style="font-size:clamp(38px,5vw,56px)">Yours in 3 steps.</h2>
+  <p class="lead">From zero to hot leads in your Telegram.</p>
+  <div class="steps">
+    <div class="step"><span class="n">01.</span><p><b>Get a bot token</b> from @BotFather, put it in <code>.env</code>, run <code>docker compose up -d</code>.</p></div>
+    <div class="step"><span class="n">02.</span><p><b>Pull your map:</b> send <code>/city Moscow</code> to the bot. Every address gets verified against real buildings.</p></div>
+    <div class="step"><span class="n">03.</span><p><b>Feed it sources:</b> add the bot as admin to channels, save Avito searches with <code>/addsearch</code>. Hot leads arrive + open <code>/mini</code>.</p></div>
+  </div>
+</section>
+
+
+<section class="block" id="get">
+  <div class="eyebrow2" style="color:#b98a2f">Get FindII</div>
+  <h2 class="st hand" style="font-size:clamp(38px,5vw,56px)">Own your pipeline.</h2>
+  <p class="lead">Private deployments only. Every installation is dedicated — your map, your channels, your data.</p>
+  <div class="plans">
+    <div class="plan">
+      <h3>Private Cloud</h3>
+      <div class="price">Contact<span> for price</span></div>
+      <ul><li>All 6 apps included</li><li>Dedicated instance, your cities</li><li>Channels and maps connected</li><li>Priority support</li></ul>
+      <a class="pill" href="#order" onclick="pickPlan('Private Cloud')" style="padding:12px 28px;font-size:16px">Contact for price</a>
+    </div>
+    <div class="plan hot">
+      <div class="tag">MOST POPULAR</div>
+      <h3>On-premise License</h3>
+      <div class="price">Contact<span> for price</span></div>
+      <ul><li>Runs on your infrastructure</li><li>Full source included</li><li>Team onboarding call</li><li>Priority support</li></ul>
+      <a class="pill" href="#order" onclick="pickPlan('On-premise License')" style="padding:12px 28px;font-size:16px">Contact for price</a>
+    </div>
+  </div>
+</section>
+
+<style>
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; max-width: 720px; margin: 0 auto; text-align: center; }
+.plan { background: #f5f5f7; border-radius: 20px; padding: 32px 26px; position: relative; }
+.plan.hot { background: #1d1d1f; color: #f5f5f7; }
+.plan h3 { font-size: 20px; }
+.plan .price { font-size: 46px; font-weight: 700; letter-spacing: -.02em; margin: 8px 0 14px; }
+.plan .price span { font-size: 15px; font-weight: 400; color: #6e6e73; }
+.plan.hot .price span { color: #a1a1a6; }
+.plan ul { list-style: none; margin-bottom: 22px; }
+.plan li { font-size: 14px; padding: 5px 0; opacity: .85; }
+.plan li::before { content: "ok "; color: #b98a2f; font-weight: 700; }
+.plan .tag { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: #b98a2f; color: #fff; font-size: 11px; font-weight: 700; padding: 3px 14px; border-radius: 20px; letter-spacing: .05em; }
+</style>
+
+<section class="block" id="order">
+  <div class="eyebrow2" style="color:#b98a2f">Request access</div>
+  <h2 class="st hand" style="font-size:clamp(38px,5vw,56px)">Place your order.</h2>
+  <p class="lead">Tell us where to reach you — we reply within 24 hours with pricing and a live demo on your data.</p>
+  <div class="orderbox">
+    <div class="orow">
+      <label>Plan</label>
+      <div class="pick" id="planpick">
+        <button type="button" data-plan="Private Cloud" onclick="pickPlan('Private Cloud')">Private Cloud</button>
+        <button type="button" data-plan="On-premise License" onclick="pickPlan('On-premise License')">On-premise License</button>
+      </div>
+    </div>
+    <div class="orow2">
+      <div><label>Your name</label><input id="o-name" placeholder="e.g. Alex"></div>
+      <div><label>Phone or email</label><input id="o-contact" placeholder="+7 … or you@mail.com" dir="ltr"></div>
+    </div>
+    <div class="orow2">
+      <div><label>City (optional)</label><input id="o-city" placeholder="e.g. Moscow"></div>
+      <div><label>Anything we should know (optional)</label><input id="o-msg" placeholder="channels, volume, timeline…"></div>
+    </div>
+    <button class="pill" id="o-btn" onclick="placeOrder()" style="padding:13px 34px;font-size:16px;margin-top:6px">Place request</button>
+    <div id="o-out"></div>
+  </div>
+</section>
+
+<style>
+.orderbox { max-width: 640px; margin: 0 auto; background: #f5f5f7; border-radius: 20px; padding: 28px; text-align: left; }
+.orderbox label { font-size: 13px; font-weight: 600; color: #6e6e73; display: block; margin-bottom: 6px; }
+.pick { display: flex; gap: 8px; }
+.pick button { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid #d2d2d7; background: #fff; font-size: 15px; font-weight: 600; cursor: pointer; color: #1d1d1f; }
+.pick button.on { border-color: #b98a2f; box-shadow: 0 0 0 2px #b98a2f inset; }
+.orow { margin-bottom: 14px; }
+.orow2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.orow2 input { width: 100%; border: 1px solid #d2d2d7; border-radius: 12px; padding: 11px 12px; font-size: 15px; background: #fff; }
+#o-out { margin-top: 12px; font-size: 15px; display: none; }
+#o-out.show { display: block; }
+#o-out.ok { background: #1d1d1f; color: #f5f5f7; border-radius: 12px; padding: 16px 18px; }
+#o-out.err { color: #b91c1c; }
+@media (max-width: 600px) { .orow2 { grid-template-columns: 1fr; } }
+</style>
+
+<div class="installband" id="selfhost">
+  <div class="eyebrow" style="color:#a1a1a6">Deployed private</div>
+  <h2 class="st hand" style="color:#f5f5f7;font-size:clamp(38px,5vw,56px)">Never shared.</h2>
+  <p class="lead" style="color:#a1a1a6">One container on your infrastructure. Your data never leaves your house.</p>
+  <div class="install">
+    <div><span class="c">$</span> git clone https://github.com/alihosseinabadi/findii.git</div>
+    <div><span class="c">$</span> cp .env.example .env &nbsp;# add bot token from @BotFather</div>
+    <div><span class="c">$</span> docker compose up -d --build &nbsp;# CRM on :8080</div>
+  </div>
+  <div style="margin-top:26px"><a class="pill" href="mailto:hosseinabadiia@gmail.com?subject=FindII%20access%20request" style="padding:12px 28px;font-size:16px">Request access</a></div>
+</div>
+
+<footer>FindII · Private deployment · scrape → extract → score → close</footer>
+<script>
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+let ORDER_PLAN = "Private Cloud";
+function pickPlan(p) {
+  ORDER_PLAN = p;
+  document.querySelectorAll("#planpick button").forEach(b =>
+    b.classList.toggle("on", b.dataset.plan === p));
+}
+pickPlan("Private Cloud");
+async function placeOrder() {
+  const box = document.getElementById("o-out");
+  const btn = document.getElementById("o-btn");
+  const body = { plan: ORDER_PLAN,
+    name: document.getElementById("o-name").value,
+    contact: document.getElementById("o-contact").value,
+    city: document.getElementById("o-city").value,
+    message: document.getElementById("o-msg").value };
+  btn.disabled = true; btn.textContent = "Sending…";
+  try {
+    const r = await fetch("/api/order", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body) });
+    const d = await r.json();
+    box.classList.add("show");
+    if (r.ok) {
+      box.classList.remove("err"); box.classList.add("ok");
+      box.innerHTML = "<b>Request #" + d.order_id + " received.</b><br>" +
+        esc(d.message) + "<br><span style='color:#a1a1a6'>Plan: " + esc(ORDER_PLAN) + "</span>";
+    } else {
+      box.classList.remove("ok"); box.classList.add("err");
+      box.textContent = d.detail || "could not send — check the fields";
+    }
+  } catch (e) { box.classList.add("show"); box.classList.add("err"); box.textContent = "backend unreachable"; }
+  btn.disabled = false; btn.textContent = "Place request";
+}
+fetch("/api/public-stats").then(r => r.json()).then(s => {
+  document.getElementById("st-leads").textContent = s.leads;
+  document.getElementById("st-hot").textContent = s.hot;
+  document.getElementById("st-maps").textContent =
+    s.map_buildings ? Number(s.map_buildings).toLocaleString() : "–";
+}).catch(() => {});
+async function tryIt() {
+  const box = document.getElementById("tryout");
+  const text = document.getElementById("trytext").value;
+  const city = document.getElementById("trycity").value;
+  box.classList.add("show");
+  box.innerHTML = city
+    ? "working… first lookup per city downloads its map (one-time, can take a minute)…"
+    : "working…";
+  try {
+    const r = await fetch("/api/try", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, city }) });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      box.innerHTML = "<span style='color:#ff453a'>" + esc(err.detail || ("http " + r.status)) + "</span>";
+      return;
+    }
+    const l = await r.json();
+    if (!l.is_real_estate) {
+      box.innerHTML = "<b>Not a listing — try a real one.</b>" +
+        "<div style='color:#a1a1a6;margin-top:6px'>This demo parses <i>real-estate ads</i> " +
+        "(deal, price, rooms, phone). " +
+        "Trying to find <b>businesses</b> in a city? Use the <a href=\"#leads\" " +
+        "style=\"color:#b98a2f\">Lead engine below</a> ⬇</div>";
+      return;
+    }
+    const rows = [["real estate", l.is_real_estate], ["deal", l.deal_type],
+      ["property", l.property_type], ["price", l.price ? l.price + " " + (l.currency || "") : "—"],
+      ["city", l.city || "—"], ["district", l.district || "—"],
+      ["area", l.area_sqm || "—"], ["rooms", l.rooms || "—"],
+      ["contact", l.contact || "—"], ["geo", l.geo_status + (l.matched_address ? " · " + l.matched_address : "") + (l.osm_ref ? " · https://www.openstreetmap.org/" + l.osm_ref : "")]];
+    box.innerHTML = "<b>score " + l.score + "/100</b> " +
+      '<div class="scorebar"><i style="width:' + l.score + '%"></i></div>' +
+      "<table>" + rows.map(x => "<tr><td class='k'>" + x[0] + "</td><td>" + esc(x[1]) + "</td></tr>").join("") + "</table>" +
+      "<div style='color:#a1a1a6;margin-top:6px'>" + esc((l.score_reasons || []).join(" · ")) +
+      "<br>" + esc(l.geo_note || "") + " · sandbox demo, nothing saved.</div>";
+  } catch (e) { box.innerHTML = "backend unreachable"; }
+}
+async function runLeads() {
+  const box = document.getElementById("leadout");
+  const q = document.getElementById("leadq").value;
+  if ((q || "").trim().length < 4) { box.innerHTML = "need a query like \"bakery in new york\""; return; }
+  box.classList.add("show");
+  box.innerHTML = "parsing query… if the city map is new to us this can take a minute (one-time download)…";
+  try {
+    const r = await fetch("/api/scrape", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q }) });
+    const d = await r.json();
+    if (!r.ok && !d.error) { box.innerHTML = "http " + r.status; return; }
+    if (d.error) {
+      box.innerHTML = "<span style='color:#ff453a'>" + esc(d.error) + "</span>"
+        + "<div style='color:#a1a1a6;margin-top:6px'>" + esc((d.parsed && d.parsed.note) || "") + "</div>";
+      return;
+    }
+    const p = d.parsed || {};
+    let preview = d.preview.length ? "<table><tr><th>name</th><th>address</th><th>phone</th></tr>" +
+      d.preview.map(pv => "<tr><td>" + esc(pv.name || pv.g_name || "") + "</td><td>" + esc(pv.address || "") +
+        "</td><td>" + esc(pv.phone || "") + "</td></tr>").join("") + "</table>" : "";
+    const a = d.analyst || {};
+    let analLinks = "";
+    if (a.html) {
+      analLinks = "<div class='row' style='margin-top:6px'>" +
+        '<a class="pill" style="text-decoration:none;background:#3a3a3c" href="' + a.html + '" target="_blank">📊 Analyst + visual</a>' +
+        (a.md ? '<a class="pill" style="text-decoration:none;background:#3a3a3c" href="' + a.md + '">⬇ Paper (.md)</a>' : "") +
+        (a.districts ? '<a class="pill" style="text-decoration:none;background:#3a3a3c" href="' + a.districts + '">⬇ Chart</a>' : "") +
+        "</div>";
+    }
+    box.innerHTML =
+      "<b>" + esc(p.category || p.cat || "Businesses") + " in " + esc(p.city || "") + "</b> — " +
+      "<b>" + d.count + " leads</b> from " + d.map_buildings + " map places" +
+      (p.district ? " · district: <b style='color:#b98a2f'>" + esc(p.district) + "</b>" : "") +
+      (p.note ? "<div style='color:#8e8e93;font-size:13px'>" + esc(p.note) + "</div>" : "") +
+      "<div class='row' style='margin-top:10px'>" +
+      '<a class="pill" style="text-decoration:none" href="' + d.files.xlsx + '">⬇ Excel</a>' +
+      '<a class="pill" style="text-decoration:none;background:#3a3a3c" href="' + d.files.csv + '">⬇ CSV</a>' +
+      "</div>" + analLinks + preview +
+      "<div style='color:#a1a1a6;margin-top:6px'>source: OpenStreetMap (real city map, offline after download). Demo — files generated live.</div>";
+  } catch (e) { box.innerHTML = "backend unreachable"; }
+}
+</script>
+</body>
+</html>

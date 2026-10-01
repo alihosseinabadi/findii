@@ -16,9 +16,11 @@ from typing import Awaitable, Callable, Iterable
 import config
 from ai.extractor import LeadExtractor
 from core.db import LeadStore
+from core.geomatch import GeoMatcher
 from core.models import Lead
 from core.scoring import score_lead
 from scrapers.avito import Ad, AvitoScraper
+from scrapers import osm_places
 
 log = logging.getLogger("findii.agent")
 
@@ -31,11 +33,47 @@ class FindIIAgent:
             engine=config.SCRAPER_ENGINE,
             delay_range=config.SCRAPER_DELAY_RANGE,
         )
+        self.geo = GeoMatcher()
+        self.geo_city = ""
+        if config.OSM_CITY:
+            try:
+                self.set_city(config.OSM_CITY)
+            except Exception as e:  # noqa: BLE001
+                log.warning("OSM city '%s' not ready: %s", config.OSM_CITY, e)
         self._notify: Callable[[Lead], Awaitable[None]] | None = None
 
     def on_lead(self, callback: Callable[[Lead], Awaitable[None]]) -> None:
         """Register async callback fired for every new qualified lead."""
         self._notify = callback
+
+    # -------------------------------------------------------- map grounding
+
+    def set_city(self, city: str) -> dict:
+        """User typed a city → ensure its OSM inventory, activate matcher.
+
+        One-time extract download per city (cached in OSM_CACHE_DIR);
+        every later match is offline.
+        """
+        stats = osm_places.ensure_city(city, config.OSM_CACHE_DIR,
+                                       manual_pbf=config.OSM_PBF_PATH)
+        inv_path = osm_places.inventory_path(stats["city"], config.OSM_CACHE_DIR)
+        self.geo = GeoMatcher(osm_places.load_inventory(inv_path))
+        self.geo_city = stats["city"]
+        log.info("map layer active: %s", stats)
+        return stats
+
+    def geomatch(self, lead: Lead) -> Lead:
+        """Pin a lead to a real OSM building. Never invents coordinates."""
+        if not self.geo.ready:
+            lead.geo_status = "unknown"
+            return lead
+        m = self.geo.match(lead.raw_text, lead.district or "", lead.city or "")
+        lead.geo_status = m["status"]
+        lead.latitude = m["lat"]
+        lead.longitude = m["lon"]
+        lead.osm_ref = m["osm_ref"]
+        lead.matched_address = m["matched"]
+        return lead
 
     # ------------------------------------------------------------ ingestion
 
@@ -69,6 +107,7 @@ class FindIIAgent:
                 setattr(lead, key, value)
         lead.is_real_estate = True
 
+        lead = self.geomatch(lead)
         lead.score, lead.score_reasons = score_lead(lead)
 
         if await self.store.is_duplicate_content(lead.content_hash):

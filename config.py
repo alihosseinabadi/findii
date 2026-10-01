@@ -38,6 +38,14 @@ CRM_PORT = int(os.getenv("CRM_PORT", "8080"))
 CRM_PASSWORD = os.getenv("CRM_PASSWORD", "")               # empty → auth disabled
 CRM_PUBLIC_URL = os.getenv("CRM_PUBLIC_URL", "")           # e.g. https://findii.example.com
 
+# ── OSM map layer (offline grounding: type a city → map activates) ──────
+OSM_CITY = os.getenv("OSM_CITY", "")                      # e.g. Moscow — or set live via /city
+OSM_CACHE_DIR = os.getenv("OSM_CACHE_DIR", "data/osm")
+OSM_PBF_PATH = os.getenv("OSM_PBF_PATH", "")              # manual .osm.pbf overrides auto-download
+
+# ── Lead-engine exports (OSM business-lead Excel/CSV) ───────────────────
+LEADS_OUT_DIR = os.getenv("LEADS_OUT_DIR", "data/exports")
+
 # ── Tuning ────────────────────────────────────────────────────────────────
 DB_PATH = os.getenv("DB_PATH", "data/findii.db")
 MIN_LEAD_SCORE = int(os.getenv("MIN_LEAD_SCORE", "50"))

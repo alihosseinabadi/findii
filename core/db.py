@@ -36,7 +36,12 @@ CREATE TABLE IF NOT EXISTS leads (
     score_reasons   TEXT DEFAULT '',
     status          TEXT DEFAULT 'new',
     content_hash    TEXT UNIQUE,
-    created_at      TEXT
+    created_at      TEXT,
+    geo_status      TEXT DEFAULT 'unknown',
+    latitude        REAL,
+    longitude       REAL,
+    osm_ref         TEXT DEFAULT '',
+    matched_address TEXT DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_msg ON leads(source_chat_id, message_id);
 CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
@@ -73,6 +78,14 @@ class LeadStore:
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._lock = asyncio.Lock()
         self._conn.executescript(SCHEMA)
+        # migrate pre-geo databases: add map-grounding columns if missing
+        existing = {r[1] for r in self._conn.execute("PRAGMA table_info(leads)")}
+        for col, ddl in (("geo_status", "TEXT DEFAULT 'unknown'"),
+                         ("latitude", "REAL"), ("longitude", "REAL"),
+                         ("osm_ref", "TEXT DEFAULT ''"),
+                         ("matched_address", "TEXT DEFAULT ''")):
+            if col not in existing:
+                self._conn.execute(f"ALTER TABLE leads ADD COLUMN {col} {ddl}")
         self._conn.commit()
 
     # ------------------------------------------------------------ helpers
@@ -112,12 +125,14 @@ class LeadStore:
                     (source, source_chat_id, message_id, source_title, source_url,
                      raw_text, is_real_estate, deal_type, property_type, city, district,
                      price, currency, area_sqm, rooms, floor, contact, summary, urgency,
-                     score, score_reasons, status, content_hash, created_at)
+                     score, score_reasons, status, content_hash, created_at,
+                     geo_status, latitude, longitude, osm_ref, matched_address)
                     VALUES
                     (:source,:source_chat_id,:message_id,:source_title,:source_url,
                      :raw_text,:is_real_estate,:deal_type,:property_type,:city,:district,
                      :price,:currency,:area_sqm,:rooms,:floor,:contact,:summary,:urgency,
-                     :score,:score_reasons_str,:status,:content_hash,:created_at)""",
+                     :score,:score_reasons_str,:status,:content_hash,:created_at,
+                     :geo_status,:latitude,:longitude,:osm_ref,:matched_address)""",
                     {**d, "is_real_estate": int(lead.is_real_estate),
                      "score_reasons_str": ", ".join(lead.score_reasons)},
                 )

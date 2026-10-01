@@ -1,6 +1,7 @@
 """Telegram layer: channel ingestion + commands + lead notifications."""
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import os
@@ -55,6 +56,11 @@ class TelegramBot:
             + (f"📐 {lead.area_sqm or '—'} m² · 🛏 {lead.rooms or '—'}\n" if lead.area_sqm or lead.rooms else "")
             + (f"📞 <code>{html.escape(lead.contact)}</code>\n" if lead.contact else "")
             + (f"📝 {html.escape((lead.summary or '')[:200])}\n" if lead.summary else "")
+            + (f"🗺 map-verified: {html.escape(lead.matched_address)}"
+               f" ({lead.latitude}, {lead.longitude})\n"
+               if lead.geo_status == "Confirmed" and lead.latitude else "")
+            + (f"🗺 ~{html.escape(lead.matched_address)} (street-matched)\n"
+               if lead.geo_status == "Probable" and lead.matched_address else "")
             + link + crm
         )
         await self._bot.send_message(config.DESTINATION_CHAT_ID, text, parse_mode="HTML")
@@ -113,11 +119,14 @@ class TelegramBot:
             "/addsearch &lt;avito-url&gt; [label] — save an Avito search\n"
             "/searches / /delsearch n / /togglesearch n\n"
             "/scrape — run all searches now\n"
+            "/market &lt;city+business&gt; — scotch an OSM business market to Excel+CSV\n"
+            "/city &lt;name&gt; — pull that city's map, pin leads to real buildings\n"
             "<i>(channels: just add me as admin)</i>\n\n"
             "<b>CRM</b>\n"
             "/stats — pipeline statistics\n"
             "/leads [n] — top leads\n"
             "/mark &lt;id&gt; &lt;status&gt; — update pipeline stage\n"
+            "/mini — open the Mini App 📱\n"
             "/export — CSV export of all leads\n\n"
             f"Alert threshold: score ≥ <b>{config.MIN_LEAD_SCORE}</b>"
         )
@@ -190,10 +199,116 @@ class TelegramBot:
             f"<b>{s['new']} new leads</b> · {s['qualified']} above threshold"
         )
 
+    async def cmd_leads_scrape(self, message: Message) -> None:
+        """/market <query> — scrape a city+business demand to Excel+CSV."""
+        if not self.is_admin(message.from_user and message.from_user.id):
+            await message.answer("Admins only.")
+            return
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            await message.answer(
+                'Usage: <code>/market moscow red square supermarket</code>\n'
+                'I parse the area + business (NLP), fetch that city\'s OSM '
+                'map, geo-scope to the landmark/neighbourhood, and export '
+                'Excel + CSV + analyst report. Bare city = all businesses.')
+            return
+        q = parts[1].strip()
+        await message.answer(f"🔍 parsing <b>{html.escape(q)}</b>… "
+                             f"(map download on first ask for a city can take a minute)")
+        import tempfile
+        from scrapers.lead_scraper import run_demand
+        try:
+            out_dir = tempfile.mkdtemp(prefix="findii_leads_")
+            result = await asyncio.to_thread(
+                run_demand, q, config.OSM_CACHE_DIR, out_dir, config.OSM_PBF_PATH)
+        except Exception as e:  # noqa: BLE001
+            await message.answer(f"❌ failed: {html.escape(str(e)[:300])}")
+            return
+        if result.get("error"):
+            await message.answer(f"⚠️ {html.escape(result['error'])}")
+            return
+        files = result.get("files", {})
+        anal = result.get("analyst") or {}
+        count = result.get("count", 0)
+        p = result.get("parsed", {})
+        try:
+            if files.get("xlsx") and os.path.exists(files["xlsx"]):
+                await message.answer_document(FSInputFile(files["xlsx"]),
+                    caption=f"📦 <b>{p.get('category', 'Leads')}</b> in "
+                            f"{p.get('city', '')} — {count} leads "
+                            f"(Excel sales kit)")
+            if files.get("csv") and os.path.exists(files["csv"]):
+                await message.answer_document(FSInputFile(files["csv"]),
+                    caption=f"{count} leads · CSV")
+            if anal.get("html") and os.path.exists(anal["html"]):
+                await message.answer_document(FSInputFile(anal["html"]),
+                    caption=f"📊 <b>Analyst + visual report</b> — {count} "
+                            f"{p.get('category', '')} in {p.get('city', '')} "
+                            f"(open in any browser)")
+            if anal.get("png_density") and os.path.exists(anal["png_density"]):
+                await message.answer_photo(FSInputFile(anal["png_density"]),
+                    caption=f"🗺 {p.get('category', '')} density · "
+                            f"{p.get('city', '')} · {count} leads")
+            if anal.get("md") and os.path.exists(anal["md"]):
+                await message.answer_document(FSInputFile(anal["md"]),
+                    caption="Analyst paper (.md)")
+        finally:
+            import shutil
+            shutil.rmtree(os.path.dirname(files.get("xlsx", "")), ignore_errors=True)
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📈 Monthly report",
+                                 callback_data="lead_mode:monthly"),
+            InlineKeyboardButton(text="🧭 Dashboard / CRM",
+                                 callback_data="lead_mode:dashboard"),
+            InlineKeyboardButton(text="🔁 New scrape",
+                                 callback_data="lead_mode:new"),
+        ]])
+        await message.answer(
+            f"✅ <b>{count}</b> <b>{html.escape(p.get('category', ''))}</b> "
+            f"leads from {result.get('map_buildings', 0)} real "
+            f"{html.escape(result.get('city', ''))} map places.\n\n"
+            "Analyst paper + visual report attached above. Go further?",
+            reply_markup=kb)
+
+    async def on_lead_mode(self, callback_query) -> None:
+        """Follow-up after a /market scrape: monthly report, dashboard, or
+        a fresh scrape. Analyst paper is auto-attached with the export."""
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        mode = (callback_query.data or "").replace("lead_mode:", "")
+        label = {"monthly": "📈 monthly report",
+                 "dashboard": "🧭 dashboard / CRM",
+                 "new": "🔁 new scrape"}.get(mode, mode)
+        if mode == "new":
+            await callback_query.message.answer(
+                "Send <code>/market &lt;city+business&gt;</code> — e.g. "
+                "<code>/market hotel in downtown moscow</code>. Every scrape "
+                "comes back as Excel + CSV + analyst paper + visual report.")
+            await callback_query.answer()
+            return
+        msg = {
+            "monthly": "The monthly report engine — counts by category, "
+                       "new vs closed, month-over-month trends — is the next "
+                       "milestone built on top of the analyst layer you just "
+                       "got. It reuses the same export pipeline.",
+            "dashboard": "A live dashboard / CRM view of these leads is "
+                         "exactly the /board + Mini App we already ship — "
+                         "open /mini from the main menu.",
+        }.get(mode, "Picked — that mode is coming in the next milestone.")
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🏠 Back to menu", callback_data="menu:start"),
+        ]])
+        await callback_query.message.answer(f"<b>{label}</b>\n{msg}", reply_markup=kb)
+        await callback_query.answer()
+
     async def cmd_stats(self, message: Message) -> None:
         s = await self.store.stats()
         status_line = ", ".join(f"{k}: {v}" for k, v in s["by_status"].items()) or "—"
         source_line = ", ".join(f"{k}: {v}" for k, v in s["by_source"].items()) or "—"
+        geo = self.agent.geo.stats if hasattr(self.agent, "geo") else {}
+        map_line = (f"\n🗺 map: {geo.get('city') or '—'} · "
+                    f"{geo.get('buildings', 0)} buildings · {geo.get('streets', 0)} streets"
+                    if geo.get("buildings") else "\n🗺 map: not set — use /city &lt;name&gt;")
         await message.answer(
             "📊 <b>Pipeline stats</b>\n"
             f"Total leads: <b>{s['total']}</b> · today: <b>{s['today']}</b> · "
@@ -201,6 +316,7 @@ class TelegramBot:
             f"Conversion new→won: <b>{s['conversion']}%</b>\n"
             f"Sources → {html.escape(source_line)}\n"
             f"Statuses → {html.escape(status_line)}"
+            + map_line
         )
 
     async def cmd_leads(self, message: Message) -> None:
@@ -241,6 +357,41 @@ class TelegramBot:
             return
         ok = await self.store.set_status(lead_id, 0, status)
         await message.answer("✅ updated" if ok else "❌ lead not found")
+
+    async def cmd_city(self, message: Message) -> None:
+        if not self.is_admin(message.from_user and message.from_user.id):
+            await message.answer("Admins only.")
+            return
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            await message.answer("Usage: <code>/city Moscow</code> — type a city, I pull its map.")
+            return
+        city = parts[1].strip()
+        await message.answer(f"🗺 pulling the map for <b>{html.escape(city)}</b>… (one-time download, then offline)")
+        try:
+            stats = await asyncio.to_thread(self.agent.set_city, city)
+        except Exception as e:  # noqa: BLE001
+            await message.answer(f"❌ map failed: {html.escape(str(e)[:300])}")
+            return
+        await message.answer(
+            f"✅ map active: <b>{html.escape(stats['city'])}</b>\n"
+            f"🏢 {stats['buildings']} buildings · 🛣 {stats['streets']} streets\n"
+            f"Every new lead is now pinned to a real building."
+        )
+
+    async def cmd_mini(self, message: Message) -> None:
+        base = (config.CRM_PUBLIC_URL or "").rstrip("/")
+        if not base.startswith("https://"):
+            await message.answer(
+                "📱 The Mini App needs a public HTTPS address.\n"
+                "Set <code>CRM_PUBLIC_URL=https://your-domain</code> in .env, "
+                "restart me, then tap /mini again.")
+            return
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📱 Open FindII Mini App",
+                                 web_app=WebAppInfo(url=f"{base}/mini"))]])
+        await message.answer("Your leads, in your pocket 👇", reply_markup=kb)
 
     async def cmd_export(self, message: Message) -> None:
         if not self.is_admin(message.from_user and message.from_user.id):

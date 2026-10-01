@@ -1,0 +1,29 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<osm version="0.6" generator="findii-test">
+  <node id="1" lat="55.7558" lon="37.6173">
+    <tag k="addr:street" v="Tverskaya"/>
+    <tag k="addr:housenumber" v="1"/>
+    <tag k="addr:city" v="Moscow"/>
+    <tag k="building" v="apartments"/>
+  </node>
+  <node id="2" lat="55.7520" lon="37.5990">
+    <tag k="addr:street" v="Arbat"/>
+    <tag k="addr:housenumber" v="10"/>
+    <tag k="addr:city" v="Moscow"/>
+    <tag k="building" v="residential"/>
+  </node>
+  <node id="3" lat="55.7600" lon="37.6200">
+    <tag k="addr:street" v="Tverskaya"/>
+    <tag k="addr:housenumber" v="7"/>
+    <tag k="building" v="office"/>
+  </node>
+  <node id="4" lat="55.7500" lon="37.6000">
+    <tag k="name" v="Café Pushkin"/>
+    <tag k="amenity" v="cafe"/>
+  </node>
+  <node id="5" lat="59.9343" lon="30.3351">
+    <tag k="addr:street" v="Nevsky"/>
+    <tag k="addr:housenumber" v="5"/>
+    <tag k="building" v="apartments"/>
+  </node>
+</osm>
