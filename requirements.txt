@@ -8,3 +8,12 @@ uvicorn>=0.30
 jinja2>=3.1
 python-multipart>=0.0.9
 osmium>=3.6          # offline OSM map layer (city inventory + geo-grounding)
+<<<<<<< Updated upstream
+=======
+
+# Offline OCR for the "drop a photo / your handwriting" flow in ai/files.py.
+# Runs entirely on the CPU; no image ever leaves the machine.
+rapidocr-onnxruntime>=1.3
+opencv-python-headless>=4.9
+openpyxl>=3.1        # .xlsx intake
+>>>>>>> Stashed changes

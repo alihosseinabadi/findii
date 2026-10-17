@@ -63,6 +63,16 @@ CREATE TABLE IF NOT EXISTS notes (
     body       TEXT NOT NULL,
     created_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS orders (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    contact     TEXT NOT NULL,
+    city        TEXT DEFAULT '',
+    plan        TEXT NOT NULL,
+    message     TEXT DEFAULT '',
+    created_at  TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -90,9 +100,20 @@ class LeadStore:
 
     # ------------------------------------------------------------ helpers
 
-    @staticmethod
-    def content_hash(text: str) -> str:
-        return hashlib.sha256(" ".join(text.split()).lower().encode()).hexdigest()[:16]
+    async def save_order(self, name: str, contact: str, city: str, plan: str, message: str) -> int:
+        """Save an order from the landing page."""
+        import uuid
+        order_id = str(uuid.uuid4())[:8]
+        cursor = self._conn.execute(
+            "INSERT INTO orders (name, contact, city, plan, message, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+            (name, contact, city, plan, message))
+        self._conn.commit()
+        return order_id
+
+    async def list_orders(self) -> list[int]:
+        """Retrieve all saved orders."""
+        rows = self._conn.execute("SELECT id FROM orders ORDER BY created_at DESC").fetchall()
+        return [row[0] for row in rows]
 
     @staticmethod
     def _lead_from_row(row) -> Lead:

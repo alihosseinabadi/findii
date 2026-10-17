@@ -13,6 +13,10 @@ import config
 from core.db import LeadStore
 from crm.auth import COOKIE_NAME, make_token, verify
 from crm.mini_auth import validate_init_data
+<<<<<<< Updated upstream
+=======
+from crm.intelligence_api import router as intel_router
+>>>>>>> Stashed changes
 
 SANDBOX_MIN_LEN = 4
 SANDBOX_MAX_LEN = 2000
@@ -31,6 +35,7 @@ def create_app(store: LeadStore) -> FastAPI:
     app = FastAPI(title="FindII CRM", docs_url=None, redoc_url=None)
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.include_router(intel_router)   # /api/intel/* - zero-LLM intelligence
 
     # -------------------------------------------------------------- auth
 
@@ -130,6 +135,154 @@ def create_app(store: LeadStore) -> FastAPI:
     async def landing(request: Request):
         return templates.TemplateResponse(request, "landing.html", {})
 
+<<<<<<< Updated upstream
+=======
+    # ---------------------------------- MyFindii marketing + start ----
+
+    @app.get("/site", response_class=HTMLResponse)
+    async def site(request: Request):
+        """MyFindii marketing landing page (8 sections, EN/RU/FA + RTL)."""
+        return templates.TemplateResponse(request, "marketing.html", {})
+
+    @app.get("/start", response_class=HTMLResponse)
+    async def start(request: Request):
+        """Simple app start screen: one input + the four helper cards."""
+        return templates.TemplateResponse(request, "start.html", {})
+
+    @app.get("/site2", response_class=HTMLResponse)
+    async def site2(request: Request):
+        """MyFindii landing — Trellis token system (8 sections, EN/RU/FA + RTL)."""
+        return templates.TemplateResponse(request, "myfindii/site2.html", {})
+
+    @app.get("/start2", response_class=HTMLResponse)
+    async def start2(request: Request):
+        """MyFindii app start — one input + four helper cards (Trellis)."""
+        return templates.TemplateResponse(request, "myfindii/start2.html", {})
+
+    # ---------------------------------------- live chat (real scraping) ----
+
+    @app.get("/api/maps")
+    async def api_maps():
+        """Cities with a full offline map, plus proof that the live layer works."""
+        from ai.demand import available_cities
+        from scrapers import osm_live
+        return JSONResponse({
+            "cities": available_cities(config.OSM_CACHE_DIR),
+            "worldwide": True,
+            "note": ("Any town in the world works. Cities listed here are "
+                     "searchable instantly and offline; everywhere else is "
+                     "looked up live and takes a few seconds."),
+        })
+
+    @app.get("/api/coverage")
+    async def api_coverage(request: Request):
+        """Does this place exist on the world map? (Nominatim, cached)"""
+        import asyncio as _asyncio
+        from scrapers import osm_live
+        q = str(request.query_params.get("q", "")).strip()
+        if len(q) < 2:
+            raise HTTPException(422, "say a place name")
+        geo = await _asyncio.to_thread(
+            osm_live.geocode, q, config.OSM_CACHE_DIR)
+        return JSONResponse({
+            "q": q, "ok": bool(geo.get("ok")),
+            "display": geo.get("display", ""),
+            "country": geo.get("country", ""),
+            "error": geo.get("error", ""),
+        })
+
+    @app.post("/api/find")
+    async def api_find(request: Request):
+        """Free text -> REAL rows from the city map.
+
+        No AI, no invented numbers: the answer is whatever the map contains.
+        Set download=false to fail fast instead of fetching a new city map.
+        """
+        import asyncio as _asyncio
+        from ai.demand import find
+        try:
+            body = await request.json()
+            q = str(body.get("q", "")).strip()
+            limit = max(1, min(int(body.get("limit") or 25), 50))
+            allow_dl = bool(body.get("download", True))
+        except Exception:  # noqa: BLE001
+            raise HTTPException(422, "bad payload")
+        if not q:
+            return JSONResponse({"error": "Tell me a city and what you need.",
+                                 "rows": [], "count": 0})
+        try:
+            return JSONResponse(await _asyncio.to_thread(
+                find, q, config.OSM_CACHE_DIR, limit, allow_dl))
+        except Exception as e:  # noqa: BLE001
+            return JSONResponse({"error": f"{type(e).__name__}: {e}"[:200],
+                                 "rows": [], "count": 0})
+
+    @app.post("/api/city")
+    async def api_city(request: Request):
+        """Start (or report) a background map download for a city.
+
+        A big city extract is ~95 MB, so this never blocks: it starts a job
+        and returns immediately. Poll GET /api/city?city=NAME for progress.
+        """
+        import asyncio as _asyncio
+        from ai.demand import map_job, map_job_status
+        try:
+            body = await request.json()
+            city = str(body.get("city", "")).strip()
+        except Exception:  # noqa: BLE001
+            raise HTTPException(422, "bad payload")
+        if not city:
+            raise HTTPException(422, "no city")
+        return JSONResponse(await _asyncio.to_thread(map_job, city))
+
+    @app.get("/api/city")
+    async def api_city_status(request: Request):
+        """Real progress for a map download: pct, MB, and current step."""
+        import asyncio as _asyncio
+        from ai.demand import map_job_status
+        city = str(request.query_params.get("city", "")).strip()
+        if not city:
+            raise HTTPException(422, "no city")
+        return JSONResponse(await _asyncio.to_thread(map_job_status, city))
+
+    @app.post("/api/read")
+    async def api_read(request: Request):
+        """Read whatever the visitor dropped: CSV, Excel, a photo of paper,
+        or a photo of their handwriting. Runs offline, no upload."""
+        import asyncio as _asyncio
+        from ai import files
+        form = await request.form()
+        up = form.get("file")
+        if up is None or not hasattr(up, "read"):
+            return JSONResponse({"error": "Send a file or a photo.", "kind": "none"})
+        raw = await up.read()
+        if len(raw) > 20 * 1024 * 1024:
+            return JSONResponse({"error": "That file is over 20 MB. "
+                                         "Send a photo of the page instead.",
+                                 "kind": "none"})
+        try:
+            data = await _asyncio.to_thread(files.read_any, raw,
+                                             getattr(up, "filename", "") or "")
+        except Exception as e:  # noqa: BLE001
+            return JSONResponse({"error": f"{type(e).__name__}: {e}"[:200],
+                                 "kind": "none"})
+        # read_any may put the table at the top level (csv path) or nested under
+        # "table" (ocr path); normalise to one nested shape for the client
+        table = data.get("table")
+        if not table:
+            table = {k: data.get(k) for k in ("header", "rows", "total", "kind")
+                     if data.get(k) is not None}
+        if table and table.get("rows"):
+            try:
+                data["profile"] = await _asyncio.to_thread(files.profile, table)
+            except Exception:  # noqa: BLE001
+                data["profile"] = None
+            data["table"] = table
+        if len(data.get("lines") or []) > 40:
+            data["lines"] = data["lines"][:40]
+        return JSONResponse(data)
+
+>>>>>>> Stashed changes
     # ---------------------------------------- OSM lead-engine surface ----
 
     LEADS_DIR = os.getenv("LEADS_OUT_DIR", config.LEADS_OUT_DIR)
