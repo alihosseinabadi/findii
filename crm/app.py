@@ -13,10 +13,7 @@ import config
 from core.db import LeadStore
 from crm.auth import COOKIE_NAME, make_token, verify
 from crm.mini_auth import validate_init_data
-<<<<<<< Updated upstream
-=======
 from crm.intelligence_api import router as intel_router
->>>>>>> Stashed changes
 
 SANDBOX_MIN_LEN = 4
 SANDBOX_MAX_LEN = 2000
@@ -135,8 +132,6 @@ def create_app(store: LeadStore) -> FastAPI:
     async def landing(request: Request):
         return templates.TemplateResponse(request, "landing.html", {})
 
-<<<<<<< Updated upstream
-=======
     # ---------------------------------- MyFindii marketing + start ----
 
     @app.get("/site", response_class=HTMLResponse)
@@ -282,7 +277,6 @@ def create_app(store: LeadStore) -> FastAPI:
             data["lines"] = data["lines"][:40]
         return JSONResponse(data)
 
->>>>>>> Stashed changes
     # ---------------------------------------- OSM lead-engine surface ----
 
     LEADS_DIR = os.getenv("LEADS_OUT_DIR", config.LEADS_OUT_DIR)
